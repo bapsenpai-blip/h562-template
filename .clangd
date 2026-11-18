@@ -1,0 +1,23 @@
+CompileFlags:
+  CompilationDatabase: build/Debug
+  # Không thêm --target ở đây: clangd tự lấy target + include hệ thống từ
+  # arm-none-eabi-gcc nhờ --query-driver (trong .vscode/settings.json).
+  # Cờ -target truyền sang gcc làm nó lỗi → mất math.h, stdint.h...
+  Add:
+    # arm_acle.h của gcc không parse được bằng clang (__builtin_arm_cdp cần hằng số).
+    # Dùng bản của clang trong tools/clangd. Đường dẫn tính từ build/<preset>.
+    # Chỉ clangd thấy cờ này; build bằng gcc không bị ảnh hưởng.
+    - -I../../tools/clangd
+
+Diagnostics:
+  # HAL/CMSIS dùng header "gom" (main.h, stm32h5xx_hal.h...) nên cảnh báo
+  # "not used directly" toàn là nhiễu. Đổi thành Strict nếu muốn bật lại.
+  UnusedIncludes: None
+
+---
+# File cấu hình HAL của ST không tự đứng được (chỉ được include qua
+# stm32h5xx_hal.h), mở riêng thì clangd báo lỗi giả.
+If:
+  PathMatch: include/stm32h5xx_hal_conf\.h
+Diagnostics:
+  Suppress: "*"

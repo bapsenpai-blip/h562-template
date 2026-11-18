@@ -1,0 +1,6 @@
+# Giữ LF cho mọi file text để script/CMake chạy được trên cả Linux lẫn Windows
+* text=auto eol=lf
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.png binary
+*.pdf binary
