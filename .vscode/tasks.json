@@ -40,6 +40,9 @@
             "label": "Flash (ST-Link SWD)",
             "type": "shell",
             "command": "STM32_Programmer_CLI -c port=SWD mode=UR -w build/Debug/h562_app.elf -v -rst",
+            "linux": {
+                "command": "${userHome}/.local/openocd-st/bin/openocd -s ${userHome}/.local/openocd-st/share/openocd/scripts -f interface/stlink-dap.cfg -f tools/openocd-h5.cfg -c \"program build/Debug/h562_app.elf verify reset exit\""
+            },
             "dependsOn": "Build (Debug)",
             "problemMatcher": []
         },

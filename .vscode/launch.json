@@ -34,5 +34,26 @@
             "armToolchainPath": "${env:STM32CLT_PATH}/GNU-tools-for-STM32/bin",
             "svdFile": "${env:STM32CLT_PATH}/STMicroelectronics_CMSIS_SVD/STM32H562.svd"
         }
+        ,
+        {
+            "name": "Debug (OpenOCD, Linux/Crostini)",
+            "type": "cortex-debug",
+            "request": "launch",
+            "servertype": "openocd",
+            "cwd": "${workspaceFolder}",
+            "executable": "${workspaceFolder}/build/Debug/h562_app.elf",
+            "device": "STM32H562VG",
+            "runToEntryPoint": "main",
+            "preLaunchTask": "Build (Debug)",
+            "serverpath": "${userHome}/.local/openocd-st/bin/openocd",
+            "searchDir": ["${userHome}/.local/openocd-st/share/openocd/scripts"],
+            "configFiles": [
+                "interface/stlink-dap.cfg",
+                "${workspaceFolder}/tools/openocd-h5.cfg"
+            ],
+            "gdbPath": "${userHome}/.local/bin/arm-none-eabi-gdb",
+            "svdFile": "${userHome}/.local/share/svd/STM32H562.svd",
+            "showDevDebugOutput": "none"
+        }
     ]
 }
