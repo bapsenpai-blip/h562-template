@@ -97,22 +97,25 @@ target_compile_options(stm32h5_hal PRIVATE -w)
 # ============================================================================
 file(GLOB_RECURSE APP_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/src/*.c)
 
+list(APPEND APP_SOURCES
+    ${CMAKE_SOURCE_DIR}/include/imu/inv_imu_driver.c
+    ${CMAKE_SOURCE_DIR}/include/imu/inv_imu_transport.c)
+
 add_executable(${PROJECT_NAME}
     ${APP_SOURCES}
     ${CMSIS_DEV}/Source/Templates/gcc/${MCU_STARTUP}
 )
 
-target_include_directories(${PROJECT_NAME} PRIVATE 
+target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/include
-    ${CMAKE_SOURCE_DIR}/include/imu/inv_imu_driver.c
-    ${CMAKE_SOURCE_DIR}/include/imu/inv_imu_transport.c)
+    ${CMAKE_SOURCE_DIR}/include/mavlink)   # cho phép cả <mavlink/common/mavlink.h> lẫn <common/mavlink.h>
 
 target_compile_options(${PROJECT_NAME} PRIVATE
     -Wall -Wextra -Wshadow
     $<$<COMPILE_LANGUAGE:ASM>:-x assembler-with-cpp>
 )
 
-target_link_libraries(${PROJECT_NAME} PRIVATE stm32h5_hal)
+target_link_libraries(${PROJECT_NAME} PRIVATE stm32h5_hal m)
 
 target_link_options(${PROJECT_NAME} PRIVATE
     ${MCU_FLAGS}

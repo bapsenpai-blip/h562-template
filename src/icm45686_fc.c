@@ -122,6 +122,7 @@ static bool fill_sample(icm45686_t *imu, const inv_imu_sensor_data_t *d, uint32_
 	/* Theo ví dụ TDK: hệ số 128 LSB/°C, offset 25 °C */
 	s->temp_c       = 25.0f + (float)d->temp_data / 128.0f;
 	s->timestamp_us = ts;
+	s->dt_us        = 0;
 	return true;
 }
 
@@ -186,6 +187,7 @@ int icm45686_init(icm45686_t *imu, const icm45686_config_t *cfg)
 	int                      rc     = 0;
 	uint8_t                  whoami = 0;
 	inv_imu_int_pin_config_t pin;
+	inv_imu_fifo_config_t fifo;
 	inv_imu_int_state_t      it;
 
 	if (imu == NULL || cfg == NULL || cfg->hspi == NULL || cfg->cs_port == NULL)
@@ -244,9 +246,19 @@ int icm45686_init(icm45686_t *imu, const icm45686_config_t *cfg)
 	rc |= inv_imu_set_pin_config_int(&imu->dev, INV_IMU_INT1, &pin);
 
 	memset(&it, INV_IMU_DISABLE, sizeof(it));
-	it.INV_UI_DRDY = INV_IMU_ENABLE;
+	it.INV_FIFO_THS = INV_IMU_ENABLE;
 	rc |= inv_imu_set_config_int(&imu->dev, INV_IMU_INT1, &it);
-
+		memset(&fifo, 0, sizeof(fifo));
+	fifo.gyro_en    = INV_IMU_ENABLE;
+	fifo.accel_en   = INV_IMU_ENABLE;
+	fifo.hires_en   = INV_IMU_DISABLE;                 /* 16-bit, frame 16 byte */
+	fifo.fifo_wm_th = 4;                               /* 4 frame = ~2.5 ms @1600 Hz */
+	fifo.fifo_mode  = FIFO_CONFIG0_FIFO_MODE_STREAM;
+	fifo.fifo_depth = FIFO_CONFIG0_FIFO_DEPTH_MAX;
+	
+	rc |= inv_imu_set_fifo_config(&imu->dev, &fifo);
+	rc |= inv_imu_flush_fifo(&imu->dev);
+	
 	rc |= inv_imu_set_gyro_fsr(&imu->dev, cfg->gyro_fsr);
 	rc |= inv_imu_set_accel_fsr(&imu->dev, cfg->accel_fsr);
 	rc |= inv_imu_set_gyro_frequency(&imu->dev, cfg->gyro_odr);
@@ -304,6 +316,13 @@ int icm45686_calibrate_gyro(icm45686_t *imu, uint32_t samples, float max_spread_
 		mx[i] = -1e9f;
 	}
 
+	/* Bỏ 100 mẫu đầu: gyro vừa bật/cấu hình lại còn dao động */
+	for (int i = 0; i < 100; i++) {
+		icm45686_sample_t w;
+		icm_port_sleep_us(period_us);
+		(void)icm45686_read_blocking(imu, &w);
+	}
+
 	while (got < samples && tries < samples * 3U) {
 		icm45686_sample_t s;
 		tries++;
@@ -323,6 +342,9 @@ int icm45686_calibrate_gyro(icm45686_t *imu, uint32_t samples, float max_spread_
 		return ICM45686_ERR_NO_DATA;
 	}
 
+	for (int i = 0; i < 3; i++)
+		imu->calib_spread_dps[i] = mx[i] - mn[i];
+
 	for (int i = 0; i < 3; i++) {
 		if ((mx[i] - mn[i]) > max_spread_dps) {
 			memcpy(imu->gyro_bias_dps, saved, sizeof(saved));
@@ -340,7 +362,9 @@ int icm45686_start(icm45686_t *imu)
 {
 	if (imu->streaming)
 		return ICM45686_OK;
-
+	inv_imu_flush_fifo(&imu->dev); /* bỏ frame cũ tích lại lúc calib (STREAM ghi đè) */
+	imu->have_ts       = false;
+	imu->fifo_state    = FIFO_IDLE;
 	imu->dma_busy      = false;
 	imu->last_read_seq = imu->seq;
 	imu->streaming     = true;
@@ -360,60 +384,113 @@ void icm45686_stop(icm45686_t *imu)
 		imu->dma_busy = false;
 	}
 }
-
+static void start_dma(icm45686_t *imu, uint16_t len)
+{
+        icm_port_cs_low(&imu->bus);
+        if (HAL_SPI_TransmitReceive_DMA(imu->bus.hspi, imu->dma_tx, imu->dma_rx, len) != HAL_OK) {
+                icm_port_cs_high(&imu->bus);
+                imu->dma_busy   = false;
+                imu->fifo_state = FIFO_IDLE;
+                imu->stat_dma_error++;
+        }
+}
 void icm45686_on_drdy(icm45686_t *imu)
 {
-	const uint16_t len = imu->cfg.read_int_status ? BURST_STATUS_LEN : BURST_DATA_LEN;
-
 	if (!imu->streaming)
 		return;
 
-	if (imu->dma_busy) {
+	if (imu->fifo_state != FIFO_IDLE || imu->dma_busy) {
 		imu->stat_overrun++;
 		return;
 	}
 
 	imu->drdy_ts_us = icm_port_micros();
 	imu->dma_busy   = true;
+	imu->fifo_state = FIFO_READ_COUNT;
 
-	imu->dma_tx[0] = REG_ACCEL_DATA_X1_UI | ICM_SPI_READ_BIT;
-	memset(&imu->dma_tx[1], 0, len);
-	cache_clean(imu->dma_tx, sizeof(imu->dma_tx));
-
-	icm_port_cs_low(&imu->bus);
-	if (HAL_SPI_TransmitReceive_DMA(imu->bus.hspi, imu->dma_tx, imu->dma_rx, (uint16_t)(len + 1U)) !=
-	    HAL_OK) {
-		icm_port_cs_high(&imu->bus);
-		imu->dma_busy = false;
-		imu->stat_dma_error++;
-	}
+	imu->dma_tx[0] = REG_FIFO_COUNT_0 | ICM_SPI_READ_BIT;
+	imu->dma_tx[1] = 0;
+	imu->dma_tx[2] = 0;
+	start_dma(imu, 3);
 }
 
 void icm45686_on_dma_complete(icm45686_t *imu)
 {
-	inv_imu_sensor_data_t d;
-
 	icm_port_cs_high(&imu->bus);
-	cache_invalidate(imu->dma_rx, sizeof(imu->dma_rx));
 
-	parse_burst(imu, &imu->dma_rx[1], &d);
-
-	if (imu->discard) {
-		imu->discard--;
-		imu->dma_busy = false;
+	if (imu->fifo_state == FIFO_READ_COUNT) {
+		/* Errata AN-000364: đọc FIFO_COUNT hai lần, dùng lần hai */
+		imu->fifo_state = FIFO_READ_COUNT2;
+		start_dma(imu, 3); /* dma_tx vẫn giữ nguyên lệnh đọc 0x12 */
 		return;
 	}
 
-	uint8_t next = (uint8_t)(imu->latest ^ 1U);
-	if (fill_sample(imu, &d, imu->drdy_ts_us, &imu->buf[next])) {
-		imu->buf[next].seq = imu->seq + 1U;
-		imu->latest        = next;
-		__DMB();
-		imu->seq++;
+	if (imu->fifo_state == FIFO_READ_COUNT2) {
+		uint16_t n;
+		FORMAT_16_BITS_DATA(imu->dev.endianness_data, &imu->dma_rx[1], &n); /* số frame */
+		if (n == 0) {
+			imu->dma_busy   = false;
+			imu->fifo_state = FIFO_IDLE;
+			return;
+		}
+		if (n > FIFO_MAX_FRAMES) {
+			imu->stat_fifo_overflow++;
+			n = FIFO_MAX_FRAMES; /* phần còn lại đọc ở ngắt sau (watermark vẫn còn vượt) */
+		}
+
+		imu->fifo_n     = n;
+		imu->fifo_state = FIFO_READ_DATA;
+		imu->dma_tx[0]  = FIFO_DATA | ICM_SPI_READ_BIT;
+		memset(&imu->dma_tx[1], 0, n * FIFO_FRAME_SIZE);
+		start_dma(imu, (uint16_t)(1U + n * FIFO_FRAME_SIZE));
+		return;
 	}
 
-	imu->dma_busy = false;
+	/* FIFO_READ_DATA: parse từng frame */
+	cache_invalidate(imu->dma_rx, sizeof(imu->dma_rx));
+	for (uint16_t i = 0; i < imu->fifo_n; i++) {
+		const uint8_t *f = &imu->dma_rx[1 + i * FIFO_FRAME_SIZE];
+		inv_imu_sensor_data_t d;
 
+		/* header hợp lệ: ACCEL_EN | GYRO_EN | TMST_FIELD_EN (0x68), không EXT_HEADER/HIRES */
+		if ((f[0] & 0xF8U) != 0x68U) {
+			imu->stat_invalid++;
+			continue;
+		}
+		parse_burst(imu, &f[1], &d);          /* chỉ dùng accel+gyro (6 từ đầu) */
+		d.temp_data = (int8_t)f[13];          /* temp trong FIFO chỉ 1 byte */
+
+		/* Timestamp 16 bit (1 µs/tick, tràn ~65 ms): dt = hiệu hai frame liên tiếp.
+		 * Phải cập nhật cả với frame bị bỏ để hiệu không bị cộng dồn. */
+		uint16_t ts;
+		FORMAT_16_BITS_DATA(imu->dev.endianness_data, &f[14], &ts);
+		uint16_t dt = imu->have_ts ? (uint16_t)(ts - imu->last_fifo_ts) : 0U;
+		imu->last_fifo_ts = ts;
+		imu->have_ts      = true;
+
+		if (imu->discard) { imu->discard--; continue; }
+		imu->stat_frames++;
+
+		uint8_t next = imu->latest ^ 1U;
+		if (fill_sample(imu, &d, imu->drdy_ts_us, &imu->buf[next])) {
+			imu->buf[next].seq = imu->seq + 1U;
+			imu->buf[next].dt_us = dt;
+			/* temp trong FIFO: 2 LSB/°C (datasheet 17.14), khác thanh ghi 128 LSB/°C */
+			imu->buf[next].temp_c = 25.0f + (float)d.temp_data / 2.0f;
+			imu->latest = next;
+			__DMB();
+			uint32_t h = imu->ring_head;
+			if(h - imu->ring_tail >= IMU_RING_SIZE) imu->stat_ring_drop++;
+			else {
+				imu->ring[h & (IMU_RING_SIZE - 1u)] = imu->buf[next];
+				__DMB();
+				imu->ring_head = h +1u;
+			}
+			imu->seq++;
+		}
+	}
+	imu->dma_busy   = false;
+	imu->fifo_state = FIFO_IDLE;
 	if (imu->on_sample)
 		imu->on_sample(imu->on_sample_user);
 }
@@ -423,6 +500,7 @@ void icm45686_on_dma_error(icm45686_t *imu)
 	icm_port_cs_high(&imu->bus);
 	imu->stat_dma_error++;
 	imu->dma_busy = false;
+	imu->fifo_state = FIFO_IDLE;
 }
 
 bool icm45686_get_latest(icm45686_t *imu, icm45686_sample_t *out)
@@ -441,6 +519,17 @@ bool icm45686_get_latest(icm45686_t *imu, icm45686_sample_t *out)
 	bool fresh         = (s1 != imu->last_read_seq);
 	imu->last_read_seq = s1;
 	return fresh;
+}
+
+bool icm45686_pop(icm45686_t *imu, icm45686_sample_t *out)
+{
+	uint32_t t = imu->ring_tail;
+	if (t == imu->ring_head)
+		return false;
+	*out = imu->ring[t & (IMU_RING_SIZE - 1u)];
+	__DMB(); /* copy xong rồi mới trả slot */
+	imu->ring_tail = t + 1u;
+	return true;
 }
 
 uint32_t icm45686_us_since_last_sample(const icm45686_t *imu)

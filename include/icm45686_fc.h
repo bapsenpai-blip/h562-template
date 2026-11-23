@@ -47,6 +47,10 @@ extern "C" {
 #define ICM45686_ERR_MOVING     -103
 #define ICM45686_ERR_NO_DATA    -104
 
+#define FIFO_MAX_FRAMES 8u
+#define FIFO_FRAME_SIZE  16u /* header + accel 6 + gyro 6 + temp 1 + timestamp 2 */
+#define REG_FIFO_COUNT_0 0x12u
+#define IMU_RING_SIZE 64u /* số mẫu lưu trong vòng, phải là lũy thừa 2 */
 /* Hướng gắn cảm biến so với thân máy bay (giống quy ước Betaflight/INAV). */
 typedef enum {
 	ICM45686_ALIGN_CW0 = 0,
@@ -92,7 +96,15 @@ typedef struct {
 	float    temp_c;
 	uint32_t timestamp_us; /* thời điểm cạnh lên DRDY */
 	uint32_t seq;          /* tăng mỗi mẫu */
+	uint16_t dt_us;        /* khoảng cách tới mẫu trước theo timestamp FIFO; 0 = chưa biết */
 } icm45686_sample_t;
+
+typedef enum {
+        FIFO_IDLE = 0,
+        FIFO_READ_COUNT,  /* đọc FIFO_COUNT lần 1 (errata AN-000364: bỏ kết quả) */
+        FIFO_READ_COUNT2, /* đọc lần 2, dùng giá trị này */
+        FIFO_READ_DATA,
+} fifo_state_t;
 
 typedef struct {
 	/* Driver TDK */
@@ -109,26 +121,38 @@ typedef struct {
 	/* Trạng thái đường dữ liệu nóng */
 	volatile bool     streaming;
 	volatile bool     dma_busy;
+
+	volatile fifo_state_t fifo_state;
+	uint16_t fifo_n;
+	icm45686_sample_t ring[IMU_RING_SIZE];
+	volatile uint32_t ring_head;   /* chỉ ISR ghi */
+	volatile uint32_t ring_tail;   /* chỉ main ghi */
+	volatile uint32_t stat_ring_drop;
+
 	volatile uint32_t drdy_ts_us;
 	volatile uint32_t seq;
 	volatile uint8_t  latest;
 	icm45686_sample_t buf[2];
 	uint32_t          last_read_seq;
+	uint16_t          last_fifo_ts; /* timestamp FIFO của frame trước (1 µs/tick, 16 bit) */
+	bool              have_ts;      /* đã có frame trước để lấy hiệu */
+	float             calib_spread_dps[3]; /* (max-min) gyro lần calib gần nhất: để chọn ngưỡng */
 	uint16_t          discard; /* số mẫu bỏ qua sau khi bật gyro */
 
 	/* Thống kê chẩn đoán */
 	volatile uint32_t stat_overrun;   /* DRDY tới khi DMA trước chưa xong */
 	volatile uint32_t stat_dma_error;
 	volatile uint32_t stat_invalid;   /* mẫu = 0x8000 (chưa sẵn sàng) */
-
+	volatile uint32_t stat_fifo_overflow; /* count > FIFO_MAX_FRAMES: không đọc hết 1 lần */
+	volatile uint32_t stat_frames;    /* tổng frame hợp lệ đã nhận */
 	/* Callback tùy chọn, gọi trong ngữ cảnh ngắt khi có mẫu mới
 	 * (ví dụ: kích tác vụ PID). */
 	void (*on_sample)(void *user);
 	void *on_sample_user;
 
 	/* Bộ đệm DMA, căn 32 byte cho cache line của Cortex-M7 */
-	uint8_t dma_tx[32] __attribute__((aligned(32)));
-	uint8_t dma_rx[32] __attribute__((aligned(32)));
+	uint8_t dma_tx[160] __attribute__((aligned(32)));
+	uint8_t dma_rx[160] __attribute__((aligned(32)));
 } icm45686_t;
 
 /* Cấu hình mặc định cho FC: gyro 6.4 kHz ±2000 dps, LPF = ODR/8 (~800 Hz),
@@ -160,7 +184,7 @@ void icm45686_on_dma_error(icm45686_t *imu);
 /* Lấy mẫu mới nhất (an toàn khi bị ngắt chen ngang).
  * Trả về true nếu là mẫu mới kể từ lần gọi trước. */
 bool icm45686_get_latest(icm45686_t *imu, icm45686_sample_t *out);
-
+bool icm45686_pop(icm45686_t *imu, icm45686_sample_t *out);
 /* Thời gian từ mẫu cuối (để phát hiện IMU chết/treo trong FC). */
 uint32_t icm45686_us_since_last_sample(const icm45686_t *imu);
 

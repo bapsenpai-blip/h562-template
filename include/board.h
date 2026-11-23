@@ -2,16 +2,17 @@
 #define BOARD_H
 
 #include "stm32h5xx_hal.h"
+#include "icm45686_fc.h"
+#include "config.h"
 
-/*
- * Định nghĩa phần cứng của board WeAct STM32H562VGT6.
- * !!! Kiểm tra lại với schematic của WeAct trước khi dùng !!!
- */
-
-/* LED trên board — đổi port/pin theo schematic */
-#define LED_GPIO_PORT        GPIOE
-#define LED_PIN              GPIO_PIN_2
-#define LED_GPIO_CLK_ENABLE() __HAL_RCC_GPIOE_CLK_ENABLE()
-#define LED_ACTIVE_LOW       0      /* 1 nếu LED sáng khi chân ở mức 0 */
-
+void GPIOS_Init(void); void SPI1_Init(void); void TIMER5_Init(void); int ICM45686_Init(void);
+extern SPI_HandleTypeDef hspi1; extern DMA_HandleTypeDef hdma_spi1_rx, hdma_spi1_tx; extern icm45686_t imu;
+#ifdef USE_MAG
+void I2C1_Init(void);
+extern I2C_HandleTypeDef hi2c1; extern DMA_HandleTypeDef hdma_i2c1_rx;
+#endif
+#ifdef USE_GPS
+void USART3_Init(void);
+extern UART_HandleTypeDef huart3; extern DMA_HandleTypeDef hdma_usart3_rx;
+#endif
 #endif /* BOARD_H */

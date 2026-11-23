@@ -1,9 +1,9 @@
 #include "main.h"
 
 /*
- * SYSCLK = 250 MHz (tối đa của STM32H5), nguồn HSI 64 MHz, không phụ thuộc thạch anh.
+ * SYSCLK = 250 MHz (tối đa của STM32H5), nguồn HSE 8 MHz (thạch anh trên board WeAct).
  *
- *   HSI 64 MHz / PLLM 16 = 4 MHz   (VCI range 2: 4..8 MHz)
+ *   HSE 8 MHz / PLLM 2 = 4 MHz    (VCI range 2: 4..8 MHz)
  *   4 MHz * PLLN 125     = 500 MHz (VCO wide: 192..836 MHz)
  *   500 / PLLP 2         = 250 MHz -> SYSCLK
  *
@@ -21,14 +21,12 @@ void SystemClock_Config(void)
     {
     }
 
-    osc.OscillatorType      = RCC_OSCILLATORTYPE_HSI;
-    osc.HSIState            = RCC_HSI_ON;
-    osc.HSIDiv              = RCC_HSI_DIV1;           /* 64 MHz */
-    osc.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+    osc.OscillatorType      = RCC_OSCILLATORTYPE_HSE;
+    osc.HSEState            = RCC_HSE_ON;
 
     osc.PLL.PLLState  = RCC_PLL_ON;
-    osc.PLL.PLLSource = RCC_PLL1_SOURCE_HSI;
-    osc.PLL.PLLM      = 16;
+    osc.PLL.PLLSource = RCC_PLL1_SOURCE_HSE;
+    osc.PLL.PLLM      = 2;   /* HSE 8 MHz / 2 = 4 MHz */
     osc.PLL.PLLN      = 125;
     osc.PLL.PLLP      = 2;
     osc.PLL.PLLQ      = 2;
@@ -41,6 +39,9 @@ void SystemClock_Config(void)
     {
         Error_Handler();
     }
+
+    /* HAL chỉ bật PLL1P; SPI1 mặc định lấy xung từ PLL1Q nên phải bật thêm */
+    __HAL_RCC_PLL1_CLKOUT_ENABLE(RCC_PLL1_DIVQ);
 
     clk.ClockType      = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK |
                          RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2 |

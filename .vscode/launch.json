@@ -53,7 +53,7 @@
             ],
             "gdbPath": "${userHome}/.local/bin/arm-none-eabi-gdb",
             "svdFile": "${userHome}/.local/share/svd/STM32H562.svd",
-            "showDevDebugOutput": "none"
+            "showDevDebugOutput": "raw"
         }
     ]
 }
