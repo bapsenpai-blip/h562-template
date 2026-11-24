@@ -3,7 +3,7 @@
 
 #include "config.h"
 
-#ifdef USE_MAG
+#if defined(USE_MAG) || defined(USE_BARO)
 extern DMA_HandleTypeDef hdma_i2c1_rx;
 #endif
 #ifdef USE_GPS
@@ -88,7 +88,7 @@ void HAL_SPI_MspInit(SPI_HandleTypeDef* hspi)
         __HAL_LINKDMA(hspi, hdmatx, hdma_spi1_tx);
     }   
 }
-#ifdef USE_MAG
+
 DMA_HandleTypeDef hdma_i2c1_rx;
 
 void HAL_I2C_MspInit(I2C_HandleTypeDef *hi2c)
@@ -109,35 +109,61 @@ void HAL_I2C_MspInit(I2C_HandleTypeDef *hi2c)
     dma_rx_init(&hdma_i2c1_rx, GPDMA1_Channel0, GPDMA1_REQUEST_I2C1_RX, GPDMA1_Channel0_IRQn);
     __HAL_LINKDMA(hi2c, hdmarx, hdma_i2c1_rx);
 
-    HAL_NVIC_SetPriority(I2C1_EV_IRQn, 5, 0);
+    HAL_NVIC_SetPriority(I2C1_EV_IRQn, 4, 0);
     HAL_NVIC_EnableIRQ(I2C1_EV_IRQn);
-    HAL_NVIC_SetPriority(I2C1_ER_IRQn, 5, 0);
+    HAL_NVIC_SetPriority(I2C1_ER_IRQn, 3, 0);
     HAL_NVIC_EnableIRQ(I2C1_ER_IRQn);
 }
-#endif
+
 
 #ifdef USE_GPS
 DMA_HandleTypeDef hdma_usart3_rx;
+#endif
+DMA_HandleTypeDef hdma_usart1_tx;
+DMA_HandleTypeDef hdma_usart1_rx;
 
 void HAL_UART_MspInit(UART_HandleTypeDef *huart)
 {
-    if (huart->Instance != USART3) return;
-
     GPIO_InitTypeDef g = {0};
-    __HAL_RCC_GPIOB_CLK_ENABLE();
-    __HAL_RCC_USART3_CLK_ENABLE();
-    /* PB10 TX, PB11 RX */
-    g.Pin       = GPIO_PIN_10 | GPIO_PIN_11;
-    g.Mode      = GPIO_MODE_AF_PP;
-    g.Pull      = GPIO_PULLUP;
-    g.Speed     = GPIO_SPEED_FREQ_HIGH;
-    g.Alternate = GPIO_AF7_USART3;
-    HAL_GPIO_Init(GPIOB, &g);
 
-    dma_rx_init(&hdma_usart3_rx, GPDMA1_Channel1, GPDMA1_REQUEST_USART3_RX, GPDMA1_Channel1_IRQn);
-    __HAL_LINKDMA(huart, hdmarx, hdma_usart3_rx);
+    if (huart->Instance == USART1)
+    {
+        __HAL_RCC_GPIOA_CLK_ENABLE();
+        __HAL_RCC_USART1_CLK_ENABLE();
+        /* PA9 TX, PA10 RX */
+        g.Pin       = GPIO_PIN_9 | GPIO_PIN_10;
+        g.Mode      = GPIO_MODE_AF_PP;
+        g.Pull      = GPIO_PULLUP;
+        g.Speed     = GPIO_SPEED_FREQ_HIGH;
+        g.Alternate = GPIO_AF7_USART1;
+        HAL_GPIO_Init(GPIOA, &g);
 
-    HAL_NVIC_SetPriority(USART3_IRQn, 5, 0);
-    HAL_NVIC_EnableIRQ(USART3_IRQn);
-}
+        dma_tx_init(&hdma_usart1_tx, GPDMA1_Channel4, GPDMA1_REQUEST_USART1_TX, GPDMA1_Channel4_IRQn);
+        __HAL_LINKDMA(huart, hdmatx, hdma_usart1_tx);
+        dma_rx_init(&hdma_usart1_rx, GPDMA1_Channel5, GPDMA1_REQUEST_USART1_RX, GPDMA1_Channel5_IRQn);
+        __HAL_LINKDMA(huart, hdmarx, hdma_usart1_rx);
+
+        HAL_NVIC_SetPriority(USART1_IRQn, 6, 0);
+        HAL_NVIC_EnableIRQ(USART1_IRQn);
+    }
+#ifdef USE_GPS
+    else if (huart->Instance == USART3)
+    {
+        __HAL_RCC_GPIOB_CLK_ENABLE();
+        __HAL_RCC_USART3_CLK_ENABLE();
+        /* PB10 TX, PB11 RX */
+        g.Pin       = GPIO_PIN_10 | GPIO_PIN_11;
+        g.Mode      = GPIO_MODE_AF_PP;
+        g.Pull      = GPIO_PULLUP;
+        g.Speed     = GPIO_SPEED_FREQ_HIGH;
+        g.Alternate = GPIO_AF7_USART3;
+        HAL_GPIO_Init(GPIOB, &g);
+
+        dma_rx_init(&hdma_usart3_rx, GPDMA1_Channel1, GPDMA1_REQUEST_USART3_RX, GPDMA1_Channel1_IRQn);
+        __HAL_LINKDMA(huart, hdmarx, hdma_usart3_rx);
+
+        HAL_NVIC_SetPriority(USART3_IRQn, 5, 0);
+        HAL_NVIC_EnableIRQ(USART3_IRQn);
+    }
 #endif
+}

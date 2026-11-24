@@ -1,6 +1,6 @@
 #include "mahony.h"
 
-#define DefKp 5.0f
+#define DefKp 0.5f
 #define DefKi 0.02f
 
 static float invSqrt(float x) {
@@ -46,7 +46,7 @@ void Mahony_UpdateIMU(Mahony_t *m, float gyro_p, float gyro_q, float gyro_r, flo
         ez = ax*vy - vx*ay;
 
         //PI feedback for gyro
-        if(!m->Ki == 0){
+        if(m->Ki > 0.0f){
             m->IntegralX += m->Ki*ex*dt;
             m->IntegralY += m->Ki*ey*dt;
             m->IntegralZ += m->Ki*ez*dt;
