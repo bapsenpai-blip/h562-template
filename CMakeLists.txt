@@ -81,6 +81,7 @@ target_include_directories(stm32h5_hal PUBLIC
 target_compile_definitions(stm32h5_hal PUBLIC
     ${MCU_DEVICE}
     USE_HAL_DRIVER
+    HSE_VALUE=8000000UL
     # USE_FULL_LL_DRIVER                 # bật nếu dùng LL driver
 )
 

@@ -104,6 +104,9 @@ int main(void)
     SensorCheck_t bmp_check = BMP388_Check();
     (void)bmp_check;
     bmp388_calibrate_ground(&bmp, 50);
+    baro.temp     = bmp.last.temperature_c;
+    baro.pressure = bmp.last.pressure_pa;
+    baro.altitude = 0.0f;
 #endif
 
     IMU_FilterInit();
@@ -183,6 +186,7 @@ int main(void)
             mavlink_send_scaled_pressure(&mav, baro.pressure, baro.temp);
             mavlink_send_vfr_hud(&mav, 0.0f, 0.0f, (int16_t)attitude.yaw, 0u, baro.altitude, 0.0f);
 #endif
+            mavlink_poll(&mav); /* kích truyền cả cụm 3 gói trong 1 lần DMA duy nhất */
         }
 
 #ifdef USE_BARO

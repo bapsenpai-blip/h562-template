@@ -139,7 +139,7 @@ void HAL_UART_MspInit(UART_HandleTypeDef *huart)
         HAL_GPIO_Init(GPIOA, &g);
 
         dma_tx_init(&hdma_usart1_tx, GPDMA1_Channel4, GPDMA1_REQUEST_USART1_TX, GPDMA1_Channel4_IRQn);
-        __HAL_LINKDMA(huart, hdmatx, hdma_usart1_tx);
+        __HAL_LINKDMA(huart, hdmatx, hdma_usart1_tx); 
         dma_rx_init(&hdma_usart1_rx, GPDMA1_Channel5, GPDMA1_REQUEST_USART1_RX, GPDMA1_Channel5_IRQn);
         __HAL_LINKDMA(huart, hdmarx, hdma_usart1_rx);
 

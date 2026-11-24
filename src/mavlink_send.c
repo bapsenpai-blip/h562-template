@@ -25,10 +25,14 @@ static void uart_tx_kick(mavlink_tx_t *d)
 	d->tx_start_ms = HAL_GetTick();
 
 	HAL_StatusTypeDef st;
-	if (d->cfg.use_dma)
+	if (d->cfg.use_dma) {
+		/* STM32H5 định nghĩa USART_DMAREQUESTS_SW_WA nên HAL không tự xóa DMAT khi xong;
+		 * xóa DMAT trước khi nạp lại GPDMA để luôn tạo sườn lên DMAT sạch cho lần truyền mới. */
+		CLEAR_BIT(d->cfg.huart->Instance->CR3, USART_CR3_DMAT);
 		st = HAL_UART_Transmit_DMA(d->cfg.huart, &d->tx_fifo[tail], n);
-	else
+	} else {
 		st = HAL_UART_Transmit_IT(d->cfg.huart, &d->tx_fifo[tail], n);
+	}
 
 	if (st != HAL_OK) {
 		d->tx_busy  = false;
@@ -109,8 +113,8 @@ void mavlink_poll(mavlink_tx_t *dev)
 		dev->tx_chunk = 0;
 		dev->tx_busy  = false;
 		dev->stat_timeout++;
-		uart_tx_kick(dev);
 	}
+	uart_tx_kick(dev);
 	__set_PRIMASK(pm);
 }
 
@@ -122,11 +126,21 @@ mavlink_tx_status_t mavlink_send_msg(mavlink_tx_t *dev, const mavlink_message_t 
 	if (dev == NULL || msg == NULL || dev->cfg.huart == NULL)
 		return MAVLINK_TX_ERR_ARG;
 
-	uint16_t len  = mavlink_msg_to_send_buffer(buf, msg);
+	uint16_t len = mavlink_msg_to_send_buffer(buf, msg);
+
+	uint32_t pm = __get_PRIMASK();
+	__disable_irq();
+	/* Khi FIFO đang rỗng và UART rảnh, đưa head/tail về 0 để cả cụm gói tin
+	 * (ATTITUDE + SCALED_PRESSURE + VFR_HUD) nằm liền mạch từ tx_fifo[0], không bị cắt đôi */
+	if (!dev->tx_busy && dev->tx_head == dev->tx_tail) {
+		dev->tx_head = 0;
+		dev->tx_tail = 0;
+	}
 	uint16_t used = (uint16_t)((dev->tx_head - dev->tx_tail) & MAVLINK_TX_FIFO_MASK);
 	uint16_t free = (uint16_t)(MAVLINK_TX_FIFO_SIZE - 1u - used);
 
 	if (len > free) {
+		__set_PRIMASK(pm);
 		dev->stat_drop++;
 		return MAVLINK_TX_ERR_FULL;
 	}
@@ -136,11 +150,7 @@ mavlink_tx_status_t mavlink_send_msg(mavlink_tx_t *dev, const mavlink_message_t 
 		dev->tx_fifo[h] = buf[i];
 		h               = (uint16_t)((h + 1u) & MAVLINK_TX_FIFO_MASK);
 	}
-
-	uint32_t pm = __get_PRIMASK();
-	__disable_irq();
 	dev->tx_head = h;
-	uart_tx_kick(dev);
 	__set_PRIMASK(pm);
 
 	return MAVLINK_TX_OK;
