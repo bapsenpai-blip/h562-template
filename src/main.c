@@ -7,9 +7,12 @@
 #define IMU_FS_HZ 1600.0f   /* phải khớp gyro_odr trong board.c (GYRO_ODR_1600_HZ) */
 #define DEG2RAD   0.0174532925f
 
+volatile int      g_imu_rc = -1;   /* 0 = OK, ICM45686_ERR_WHOAMI = không nhận được WHO_AM_I */ 
+volatile uint8_t  g_imu_whoami = 0;   /* WHO_AM_I đọc được từ ICM45686 */
 volatile int      g_calib_rc = -1;   /* 0 = OK, ICM45686_ERR_MOVING = gyro không đứng yên */
 volatile float    g_dt = 1.0f / IMU_FS_HZ;  /* dt (s) của mẫu vừa xử lý, từ timestamp FIFO */
- 
+ volatile int      g_bmp_rc = -1;   /* 0 = OK, BMP388_ERR_WHOAMI = không nhận được WHO_AM_I */
+ volatile uint8_t  g_bmp_whoami = 0;   /* WHO_AM_I đọc được từ BMP388 */
 Mahony_t          mahony;
 volatile uint32_t g_imu_hz;   /* mẫu/giây main nhận được: xem trong debugger */
 volatile int g_bmp_hz = 0;   /* mẫu/giây main nhận được: xem trong debugger */
@@ -87,9 +90,19 @@ int main(void)
     USART3_Init();
     GPS_Init(&huart3);
 #endif
-
-    SensorCheck_t imu_check = ICM45686_Check();
-    (void)imu_check;
+    ICM45686_Init();
+    BMP388_Init();
+    g_imu_rc = ICM45686_Init();
+    
+    /* Đọc WHO_AM_I cả khi init lỗi để chẩn đoán (transport chỉ có sau khi init đi tới đó) */
+    if (imu.dev.transport.read_reg != NULL)
+        inv_imu_get_who_am_i(&imu.dev, (uint8_t *)&g_imu_whoami);
+    g_bmp_rc = BMP388_Init();
+    g_bmp_whoami = bmp.chip_id;
+    if (g_imu_rc != ICM45686_OK)
+    {
+        Error_Handler();    /* dừng tại đây: xem g_imu_rc, g_imu_whoami trong debugger */
+    }
 
     for (int try = 0; try < 5; try++) {   /* retry: lần đầu có thể trùng lúc vừa cắm/đặt board */
         g_calib_rc = icm45686_calibrate_gyro(&imu, 500, 2.0f);
@@ -101,8 +114,6 @@ int main(void)
         Error_Handler();    /* gyro rung hoặc đọc lỗi: xem g_calib_rc trong debugger */
     }
 #ifdef USE_BARO
-    SensorCheck_t bmp_check = BMP388_Check();
-    (void)bmp_check;
     bmp388_calibrate_ground(&bmp, 50);
     baro.temp     = bmp.last.temperature_c;
     baro.pressure = bmp.last.pressure_pa;

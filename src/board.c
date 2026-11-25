@@ -65,21 +65,6 @@ int ICM45686_Init(void)
     return icm45686_init(&imu, &cfg);
 }
 
-SensorCheck_t ICM45686_Check(void)
-{
-    SensorCheck_t check = {0};
-    check.rc = ICM45686_Init();
-    check.whoami = 0;
-    /* Đọc WHO_AM_I cả khi init lỗi để chẩn đoán (transport chỉ có sau khi init đi tới đó) */
-    if (imu.dev.transport.read_reg != NULL)
-        inv_imu_get_who_am_i(&imu.dev, (uint8_t *)&check.whoami);
-    if (check.rc != ICM45686_OK)
-    {
-        Error_Handler();    /* dừng tại đây: xem g_imu_rc, g_imu_whoami trong debugger */
-    }
-    return check;
-}
-
 I2C_HandleTypeDef hi2c1;
 void I2C1_Init(void)
 {
@@ -100,18 +85,6 @@ int BMP388_Init(void)
     bcfg.hi2c     = &hi2c1;
     bcfg.i2c_addr = BMP388_I2C_ADDR_SDO_LOW; /* 0x76 (SDO nối GND); đổi thành HIGH nếu nối VCC */
     return (int)bmp388_init(&bmp, &bcfg);
-}
-
-SensorCheck_t BMP388_Check(void)
-{
-    SensorCheck_t check = {0};
-    check.rc     = BMP388_Init();
-    check.whoami = bmp.chip_id;
-    if (check.rc != BMP388_OK)
-    {
-        Error_Handler();
-    }
-    return check;
 }
 
 #ifdef USE_GPS
@@ -163,6 +136,6 @@ int MAVLINK_Init(void)
     cfg.huart    = &huart1;
     cfg.sys_id   = 1u;
     cfg.mav_type = MAV_TYPE_FIXED_WING;
-    cfg.use_dma  = true; /* Dùng GPDMA1_Channel4 đã cấu hình cho USART1_TX trong msp.c */
+    cfg.use_dma  = true;  /* Dùng GPDMA1_Channel4 đã cấu hình cho USART1_TX trong msp.c */
     return (int)mavlink_init(&mav, &cfg);
 }

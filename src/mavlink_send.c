@@ -28,7 +28,6 @@ static void uart_tx_kick(mavlink_tx_t *d)
 	if (d->cfg.use_dma) {
 		/* STM32H5 định nghĩa USART_DMAREQUESTS_SW_WA nên HAL không tự xóa DMAT khi xong;
 		 * xóa DMAT trước khi nạp lại GPDMA để luôn tạo sườn lên DMAT sạch cho lần truyền mới. */
-		CLEAR_BIT(d->cfg.huart->Instance->CR3, USART_CR3_DMAT);
 		st = HAL_UART_Transmit_DMA(d->cfg.huart, &d->tx_fifo[tail], n);
 	} else {
 		st = HAL_UART_Transmit_IT(d->cfg.huart, &d->tx_fifo[tail], n);
