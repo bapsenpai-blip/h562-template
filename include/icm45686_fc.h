@@ -129,6 +129,7 @@ typedef struct {
 	volatile uint32_t ring_tail;   /* chỉ main ghi */
 	volatile uint32_t stat_ring_drop;
 
+	volatile uint8_t recovery_stage; /* 0 = bình thường, >0 = đang cố gắng khôi phục đường dữ liệu */
 	volatile uint32_t drdy_ts_us;
 	volatile uint32_t seq;
 	volatile uint8_t  latest;
@@ -188,6 +189,7 @@ bool icm45686_pop(icm45686_t *imu, icm45686_sample_t *out);
 /* Thời gian từ mẫu cuối (để phát hiện IMU chết/treo trong FC). */
 uint32_t icm45686_us_since_last_sample(const icm45686_t *imu);
 
+void icm45686_recovery_stage_1(icm45686_t *imu);
 #ifdef __cplusplus
 }
 #endif

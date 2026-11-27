@@ -5,6 +5,8 @@
 #endif
 
 #define IMU_FS_HZ 1600.0f   /* phải khớp gyro_odr trong board.c (GYRO_ODR_1600_HZ) */
+#define IMU_FS_DT (1.0f / IMU_FS_HZ)
+#define IMU_TIMEOUT_US 6000u
 #define DEG2RAD   0.0174532925f
 
 volatile int      g_imu_rc = -1;   /* 0 = OK, ICM45686_ERR_WHOAMI = không nhận được WHO_AM_I */ 
@@ -90,8 +92,6 @@ int main(void)
     USART3_Init();
     GPS_Init(&huart3);
 #endif
-    ICM45686_Init();
-    BMP388_Init();
     g_imu_rc = ICM45686_Init();
     
     /* Đọc WHO_AM_I cả khi init lỗi để chẩn đoán (transport chỉ có sau khi init đi tới đó) */
@@ -123,7 +123,7 @@ int main(void)
     IMU_FilterInit();
     Mahony_Init(&mahony);
     icm45686_start(&imu);
-    
+    uint32_t imu_t0 = 0;
     uint32_t hz_t0 = Micros(), hz_cnt = 0;
     uint32_t mav_t = Micros();
 #ifdef USE_BARO
@@ -142,11 +142,11 @@ int main(void)
             float dt_att = (float)imu_s.dt_us * 1e-6f;
             if (imu_s.dt_us == 0 || dt_att > 4.0f / IMU_FS_HZ) dt_att = 1.0f / IMU_FS_HZ;
             g_dt = dt_att;
-
             for (int i = 0; i < 3; i++) {
                 filtered.gyro[i]  = Biquad_Update(&lpf_gyro[i],  imu_s.gyro_dps[i]);
                 filtered.accel[i] = Biquad_Update(&lpf_accel[i], imu_s.accel_g[i]);
             }
+            imu.recovery_stage = 0;   /* có mẫu mới là đường dữ liệu OK */
 #ifdef USE_MAG
             if (Micros() - mag_t0 >= 20000u) {  /* 50 Hz khớp QMC5883L_ODR_50_HZ */
                 mag_t0 += 20000u;
@@ -171,6 +171,12 @@ int main(void)
                              filtered.gyro[0] * DEG2RAD, filtered.gyro[1] * DEG2RAD, filtered.gyro[2] * DEG2RAD,
                              filtered.accel[0], filtered.accel[1], filtered.accel[2], dt_att);
 #endif
+        }
+        if(Micros() - imu_t0 >= IMU_TIMEOUT_US) {
+            imu.recovery_stage++;
+        }
+        if(imu.recovery_stage == 1){
+            icm45686_recover_stage_1(&imu);
         }
         attitude.roll  = Mahony_GetRoll(&mahony);
         attitude.pitch = Mahony_GetPitch(&mahony);

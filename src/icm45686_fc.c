@@ -536,3 +536,17 @@ uint32_t icm45686_us_since_last_sample(const icm45686_t *imu)
 {
 	return icm_port_micros() - imu->buf[imu->latest].timestamp_us;
 }
+
+void icm45686_recovery_stage_1(icm45686_t *imu)
+{	
+	if(imu->recovery_stage != 1) return;
+	if(imu->fifo_state != FIFO_IDLE || imu->dma_busy ==true)
+	{
+		icm45686_stop(imu);
+		icm45686_start(imu);
+	}else if(imu->dma_busy == false && imu->fifo_state == FIFO_IDLE){
+		HAL_NVIC_DisableIRQ(EXTI0_IRQn);
+		icm45686_on_drdy(imu);
+		HAL_NVIC_EnableIRQ(EXTI0_IRQn)
+	}
+}
